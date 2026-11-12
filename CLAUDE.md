@@ -17,7 +17,7 @@ Use this structure, kept short:
 
 - Explain before editing. If a change touches more than 2 files, show the plan and wait for my OK.
 - Keep changes scoped to the current task. No unrelated refactors. No new dependencies without asking.
-- Never weaken a check just to make a case pass (e.g. raising a timeout so a slow call succeeds). Say so if that is the tempting fix.
+- Never use a single knob as the whole fix (e.g. only raising a timeout so a slow call succeeds). Timeouts must be realistic for the dependency and always paired with bounded retries and user-visible feedback; state the trade-off explicitly.
 - Add or extend vitest tests for pure logic (parsers, adapters, generators). Run `pnpm test` in the package you touched and a typecheck (`pnpm build`) and report the result.
 - Do not commit unless I ask; when I say "commit", stage only the files of this step and use the suggested message.
 - When you notice a codebase issue outside the current task, append one line to `NOTES.md` (problem, impact, suggested fix) instead of fixing it.
