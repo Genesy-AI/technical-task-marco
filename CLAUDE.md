@@ -17,6 +17,7 @@ Use this structure, kept short:
 
 - Explain before editing. If a change touches more than 2 files, show the plan and wait for my OK.
 - Keep changes scoped to the current task. No unrelated refactors. No new dependencies without asking.
+- New code goes into its own focused modules (e.g. `providers/`, `activities/phone.ts`, `workflows/enrichPhone.ts`) instead of growing `backend/src/index.ts`. Do not move or refactor existing code; log layering issues in `NOTES.md`.
 - Never use a single knob as the whole fix (e.g. only raising a timeout so a slow call succeeds). Timeouts must be realistic for the dependency and always paired with bounded retries and user-visible feedback; state the trade-off explicitly.
 - Add or extend vitest tests for pure logic (parsers, adapters, generators). Run `pnpm test` in the package you touched and a typecheck (`pnpm build`) and report the result.
 - Do not commit unless I ask; when I say "commit", stage only the files of this step and use the suggested message.
