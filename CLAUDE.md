@@ -4,14 +4,19 @@ This is a recorded take-home exercise. I (Marco) drive and make the decisions; y
 
 ## How to respond
 
-Use this structure, kept short:
+Start every answer with a **TL;DR of max 3 lines**:
+- **Root cause / understanding:** one sentence.
+- **Recommendation:** one sentence, including the main trade-off.
+- **What I need from you:** a decision, an OK, or nothing.
 
-1. **Understanding**: 3-6 bullets on the relevant code flow, with file paths.
-2. **Options and trade-offs**: 2-3 options, the pros/cons of each, and your recommendation. Say what could go wrong with the recommended one.
-3. **Assumptions / open questions**: anything you assumed (product or technical). Flag product questions explicitly.
-4. **Changes**: what you changed and why, file by file.
-5. **Verify**: commands you ran and their results, plus manual steps for me (UI clicks, Temporal UI at http://localhost:8233).
-6. **Commit**: a suggested Conventional Commit message and the files to stage.
+Then keep the rest under ~25 lines, skipping any section that adds nothing:
+- **Options:** a short table only when there are real alternatives.
+- **Assumptions / open questions:** bullets; flag product questions explicitly.
+- **Changes:** files to change and why, one line each.
+- **Verify:** commands run and results, plus manual steps for me (UI clicks, Temporal UI at http://localhost:8233).
+- **Commit:** a suggested Conventional Commit message and the files to stage.
+
+I'll ask "expand on X" when I want more detail. Plans for large features (plan mode) may be longer, but still start with the TL;DR.
 
 ## Rules
 
