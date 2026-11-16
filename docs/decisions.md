@@ -15,3 +15,10 @@ Short records of significant decisions taken during this exercise: context, opti
 - Decision: A. `companyDomainFromEmail` (ada@acme.com -> acme.com); free-mail and placeholder domains (gmail, yahoo, hotmail, example.com, ...) return null and the Orion adapter's `canHandle` is false, so the fallback chain moves to Astra.
 - Why: uses the best provider whenever we have a plausible signal, without widening scope; C still needs a fallback for existing leads.
 - Consequences: heuristic, the email domain can differ from the company site (subsidiaries, agencies), giving a miss or a wrong match. Most sample leads use free-mail, so Orion is often skipped. Follow-up: `companyWebsite` field via CSV import (IMPROVEMENTS). Patterns: adapter, fallback chain.
+
+## ADR-003: Phone enrichment runs async (workflow.start + persisted status + polling), one workflow per lead
+- Context: the provider chain takes 1-5s typically and up to ~72s worst case (3 attempts x per-provider timeout); email verification showed that awaiting workflows in the HTTP request hangs the UI.
+- Options: A) `workflow.execute` inside the request, B) `workflow.start`, workflow persists status via activities, UI polls, C) B with push (SSE/websockets).
+- Decision: B. `POST /leads/enrich-phone` marks leads PENDING, starts `enrich-phone-<leadId>` and returns 202; the workflow writes IN_PROGRESS + current provider, then FOUND / NOT_FOUND / FAILED; the UI polls every 2s only while some lead is active.
+- Why: the request is bounded regardless of providers, progress survives page reloads (the lead row is the single source of truth), and polling needs no new infrastructure.
+- Consequences: idempotency key = workflowId; `WorkflowExecutionAlreadyStartedError` is reported as "already running", and the default reuse policy allows re-enrichment once a run closes. Leads with a phone are skipped. Polling costs a `GET /leads` every 2s during enrichment; move to SSE if lists grow. Patterns: idempotency key, retry with exponential backoff, fail fast (non-retryable 4xx).

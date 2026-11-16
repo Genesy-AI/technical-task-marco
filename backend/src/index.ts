@@ -5,6 +5,7 @@ import { verifyEmailWorkflow } from './workflows'
 import { generateMessageFromTemplate } from './utils/messageGenerator'
 import { normalizeCountryCode } from './validation/countryCode'
 import { runTemporalWorker } from './worker'
+import { enrichPhoneRouter } from './routes/enrichPhone'
 const prisma = new PrismaClient()
 const app = express()
 app.use(express.json())
@@ -22,7 +23,9 @@ app.use(function (req, res, next) {
   next()
 })
 
-app.post('/leads', async (req: Request, res: Response) => {
+app.use(enrichPhoneRouter)
+
+app.post('/leads',async (req: Request, res: Response) => {
   const { name, lastName, email } = req.body
 
   if (!name || !lastName || !email) {
