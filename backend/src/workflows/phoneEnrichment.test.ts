@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { decideFinalStatus, ProviderAttempt } from './phoneEnrichment'
+import { decideFinalStatus, isActivePhoneEnrichmentStatus, ProviderAttempt } from './phoneEnrichment'
+
+describe('isActivePhoneEnrichmentStatus', () => {
+  it('is true only for PENDING and IN_PROGRESS', () => {
+    expect(isActivePhoneEnrichmentStatus('PENDING')).toBe(true)
+    expect(isActivePhoneEnrichmentStatus('IN_PROGRESS')).toBe(true)
+    for (const s of [null, 'FOUND', 'NOT_FOUND', 'FAILED']) expect(isActivePhoneEnrichmentStatus(s)).toBe(false)
+  })
+})
 
 const a = (providerId: ProviderAttempt['providerId'], outcome: ProviderAttempt['outcome']): ProviderAttempt => ({
   providerId,

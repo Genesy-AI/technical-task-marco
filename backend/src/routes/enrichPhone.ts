@@ -3,7 +3,7 @@ import { Request, Response, Router } from 'express'
 import { prisma } from '../db/prisma'
 import { getTemporalClient, TASK_QUEUE } from '../temporal/client'
 import { enrichPhoneWorkflow } from '../workflows/enrichPhone'
-import { PhoneEnrichmentStatus } from '../workflows/phoneEnrichment'
+import { isActivePhoneEnrichmentStatus, PhoneEnrichmentStatus } from '../workflows/phoneEnrichment'
 
 /** Idempotency key: at most one running enrichment per lead (ADR-003). */
 export const enrichPhoneWorkflowId = (leadId: number) => `enrich-phone-${leadId}`
@@ -33,7 +33,14 @@ enrichPhoneRouter.post('/leads/enrich-phone', async (req: Request, res: Response
   try {
     const leads = await prisma.lead.findMany({
       where: { id: { in: leadIds } },
-      select: { id: true, firstName: true, lastName: true, phone: true },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        phone: true,
+        phoneEnrichmentStatus: true,
+        phoneEnrichmentProvider: true,
+      },
     })
     if (leads.length === 0) {
       return res.status(404).json({ error: 'No leads found with the provided IDs' })
@@ -79,8 +86,9 @@ enrichPhoneRouter.post('/leads/enrich-phone', async (req: Request, res: Response
           // Default reuse policy (ALLOW_DUPLICATE): a lead can be re-enriched once its previous run has closed.
           workflowId: enrichPhoneWorkflowId(lead.id),
           args: [lead.id],
-          // Safety net well above the ~72s worst case of the provider chain.
-          workflowExecutionTimeout: '3 minutes',
+          // No workflowExecutionTimeout on purpose: a server-side timeout ends the run without executing
+          // workflow code, so the lead would stay PENDING forever. Per-activity timeouts + bounded retries
+          // already cap the provider chain at ~72s.
         })
       )
     )
@@ -98,6 +106,24 @@ enrichPhoneRouter.post('/leads/enrich-phone', async (req: Request, res: Response
         errors.push({ ...ref(lead), error: 'Could not start phone enrichment' })
       }
     })
+
+    // Race: the previous run may have written its final status but not closed yet, so this request flipped the
+    // lead to PENDING and then got AlreadyStarted. Nobody would clear that PENDING: restore what we overwrote.
+    // Conditional on PENDING so a newer write by the running workflow is never clobbered.
+    const flippedToPending = new Map(
+      toStart.filter((l) => !isActivePhoneEnrichmentStatus(l.phoneEnrichmentStatus)).map((l) => [l.id, l])
+    )
+    for (const { leadId } of alreadyRunning) {
+      const previous = flippedToPending.get(leadId)
+      if (!previous) continue
+      await prisma.lead.updateMany({
+        where: { id: leadId, phoneEnrichmentStatus: PhoneEnrichmentStatus.PENDING },
+        data: {
+          phoneEnrichmentStatus: previous.phoneEnrichmentStatus,
+          phoneEnrichmentProvider: previous.phoneEnrichmentProvider,
+        },
+      })
+    }
 
     // Don't leave leads PENDING forever when their workflow never started.
     if (errors.length > 0) {

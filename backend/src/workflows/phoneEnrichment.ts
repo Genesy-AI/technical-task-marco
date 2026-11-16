@@ -14,6 +14,10 @@ export const PhoneEnrichmentStatus = {
 } as const
 export type PhoneEnrichmentStatus = (typeof PhoneEnrichmentStatus)[keyof typeof PhoneEnrichmentStatus]
 
+/** PENDING/IN_PROGRESS: a workflow may own the lead, so the route must not overwrite its status. */
+export const isActivePhoneEnrichmentStatus = (status: string | null): boolean =>
+  status === PhoneEnrichmentStatus.PENDING || status === PhoneEnrichmentStatus.IN_PROGRESS
+
 /** Fallback chain: best data first (Orion), then fastest (Astra), then newest (Nimbus). */
 export const PHONE_PROVIDER_ORDER: readonly PhoneProviderId[] = ['orionConnect', 'astraDialer', 'nimbusLookup']
 
