@@ -4,6 +4,13 @@ import toast from 'react-hot-toast'
 import { api } from '../api'
 import { MessageTemplateModal } from './MessageTemplateModal'
 import { CsvImportModal } from './CsvImportModal'
+import { PhoneCell } from './PhoneCell'
+import { isAxiosError } from 'axios'
+import {
+  isPhoneEnrichmentActive,
+  PHONE_ENRICHMENT_POLL_MS,
+  summarizeEnrichPhoneResponse,
+} from '../utils/phoneEnrichment'
 
 export const LeadsList: FC = () => {
   const [selectedLeads, setSelectedLeads] = useState<number[]>([])
@@ -16,6 +23,8 @@ export const LeadsList: FC = () => {
     queryKey: ['leads', 'getMany'],
     queryFn: async () => api.leads.getMany(),
     retry: false,
+    // Poll only while a phone enrichment is queued or running (ADR-003); stops on its own when all finish.
+    refetchInterval: (query) => (isPhoneEnrichmentActive(query.state.data) ? PHONE_ENRICHMENT_POLL_MS : false),
   })
   
 
@@ -40,15 +49,38 @@ export const LeadsList: FC = () => {
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['leads', 'getMany'] })
       setIsEnrichDropdownOpen(false)
-      toast.success(
-        data.verifiedCount === 1
-          ? `Verified ${data.verifiedCount} email`
-          : `Verified ${data.verifiedCount} emails`
-      )
+      if (data.verifiedCount > 0) {
+        toast.success(
+          data.verifiedCount === 1
+            ? `Verified ${data.verifiedCount} email`
+            : `Verified ${data.verifiedCount} emails`
+        )
+      }
+      if (data.errors.length > 0) {
+        const names = data.errors.map((e) => e.leadName).join(', ')
+        toast.error(`Could not verify ${data.errors.length} email(s): ${names}. Please try again.`)
+      }
     },
     onError: () => {
       toast.error('Failed to verify emails. Please try again.')
     }
+  })
+
+  const enrichPhoneMutation = useMutation({
+    mutationFn: async (ids: number[]) => api.leads.enrichPhone({ leadIds: ids }),
+    onSuccess: (data) => {
+      // Leads are now PENDING in the DB: refetching starts the polling above.
+      queryClient.invalidateQueries({ queryKey: ['leads', 'getMany'] })
+      setIsEnrichDropdownOpen(false)
+      const toasts = summarizeEnrichPhoneResponse(data)
+      if (toasts.success) toast.success(toasts.success)
+      if (toasts.info) toast(toasts.info)
+      if (toasts.error) toast.error(toasts.error)
+    },
+    onError: (error) => {
+      const serverMessage = isAxiosError(error) ? error.response?.data?.error : undefined
+      toast.error(serverMessage || 'Failed to start phone enrichment. Please try again.')
+    },
   })
 
   const handleSelectAll = (checked: boolean) => {
@@ -149,13 +181,26 @@ export const LeadsList: FC = () => {
                     </button>
                     <button
                       onClick={() => verifyEmailsMutation.mutate(selectedLeads)}
-                      className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 transition-colors"
+                      disabled={verifyEmailsMutation.isPending}
+                      className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                     >
                       <div className="flex items-center">
                         <svg className="mr-3 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 12H8m8 0a8 8 0 11-16 0 8 8 0 0116 0zm-8 0V4" />
                         </svg>
-                        Verify Email
+                        {verifyEmailsMutation.isPending ? 'Verifying…' : 'Verify Email'}
+                      </div>
+                    </button>
+                    <button
+                      onClick={() => enrichPhoneMutation.mutate(selectedLeads)}
+                      disabled={enrichPhoneMutation.isPending}
+                      className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    >
+                      <div className="flex items-center">
+                        <svg className="mr-3 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+                        </svg>
+                        {enrichPhoneMutation.isPending ? 'Starting…' : 'Enrich Phone'}
                       </div>
                     </button>
                     <button
@@ -226,6 +271,9 @@ export const LeadsList: FC = () => {
                   Email
                 </th>
                 <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider bg-gray-50">
+                  Phone
+                </th>
+                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider bg-gray-50">
                   Job Title
                 </th>
                 <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider bg-gray-50">
@@ -265,6 +313,13 @@ export const LeadsList: FC = () => {
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="text-sm text-gray-900">{lead.email || '-'} {lead.emailVerified === null ? '❓' : lead.emailVerified ? '✅' : '❌'}</div>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <PhoneCell
+                      phone={lead.phone}
+                      status={lead.phoneEnrichmentStatus}
+                      provider={lead.phoneEnrichmentProvider}
+                    />
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="text-sm text-gray-900">{lead.jobTitle || '-'}</div>

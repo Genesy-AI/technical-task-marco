@@ -1,4 +1,5 @@
 import Papa from 'papaparse'
+import { normalizeCountryCode } from './countryCode'
 
 export interface CsvLead {
   firstName: string
@@ -9,6 +10,8 @@ export interface CsvLead {
   companyName?: string
   isValid: boolean
   errors: string[]
+  /** Non-blocking issues: the row is still imported (e.g. invalid optional field dropped). */
+  warnings: string[]
   rowIndex: number
 }
 
@@ -89,13 +92,22 @@ export const parseCsv = (content: string): CsvLead[] => {
       errors.push('Invalid email format')
     }
 
+    // countryCode is optional: an invalid value is dropped with a warning instead of rejecting the row (ADR-001).
+    const warnings: string[] = []
+    const country = normalizeCountryCode(lead.countryCode)
+    if (country.invalid) {
+      warnings.push(`Invalid country code "${lead.countryCode}" (will be left empty)`)
+    }
+
     data.push({
       ...lead,
       firstName: lead.firstName || '',
       lastName: lead.lastName || '',
       email: lead.email || '',
+      countryCode: country.code ?? undefined,
       isValid: errors.length === 0,
       errors,
+      warnings,
     } as CsvLead)
   })
 

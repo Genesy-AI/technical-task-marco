@@ -3,7 +3,9 @@ import express, { Request, Response } from 'express'
 import { Connection, Client } from '@temporalio/client'
 import { verifyEmailWorkflow } from './workflows'
 import { generateMessageFromTemplate } from './utils/messageGenerator'
+import { normalizeCountryCode } from './validation/countryCode'
 import { runTemporalWorker } from './worker'
+import { enrichPhoneRouter } from './routes/enrichPhone'
 const prisma = new PrismaClient()
 const app = express()
 app.use(express.json())
@@ -21,7 +23,9 @@ app.use(function (req, res, next) {
   next()
 })
 
-app.post('/leads', async (req: Request, res: Response) => {
+app.use(enrichPhoneRouter)
+
+app.post('/leads',async (req: Request, res: Response) => {
   const { name, lastName, email } = req.body
 
   if (!name || !lastName || !email) {
@@ -217,17 +221,21 @@ app.post('/leads/bulk', async (req: Request, res: Response) => {
     })
 
     let importedCount = 0
+    let countryCodeWarnings = 0
     const errors: Array<{ lead: any; error: string }> = []
 
     for (const lead of uniqueLeads) {
       try {
+        // Optional field: invalid codes are stored as null and counted, not rejected (ADR-001).
+        const country = normalizeCountryCode(lead.countryCode)
+        if (country.invalid) countryCodeWarnings++
         await prisma.lead.create({
           data: {
             firstName: lead.firstName.trim(),
             lastName: lead.lastName.trim(),
             email: lead.email.trim(),
             jobTitle: lead.jobTitle ? lead.jobTitle.trim() : null,
-            countryCode: lead.countryCode ? lead.countryCode.trim() : null,
+            countryCode: country.code,
             companyName: lead.companyName ? lead.companyName.trim() : null,
           },
         })
@@ -245,6 +253,7 @@ app.post('/leads/bulk', async (req: Request, res: Response) => {
       importedCount,
       duplicatesSkipped: validLeads.length - uniqueLeads.length,
       invalidLeads: leads.length - validLeads.length,
+      countryCodeWarnings,
       errors,
     })
   } catch (error) {
@@ -276,12 +285,12 @@ app.post('/leads/verify-emails', async (req: Request, res: Response) => {
     const connection = await Connection.connect({ address: 'localhost:7233' })
     const client = new Client({ connection, namespace: 'default' })
 
-    let verifiedCount = 0
     const results: Array<{ leadId: number; emailVerified: boolean }> = []
     const errors: Array<{ leadId: number; leadName: string; error: string }> = []
 
-    for (const lead of leads) {
-      try {
+    // Run all leads concurrently so one slow lead does not block the others.
+    const settled = await Promise.allSettled(
+      leads.map(async (lead) => {
         const isVerified = await client.workflow.execute(verifyEmailWorkflow, {
           taskQueue: 'myQueue',
           workflowId: `verify-email-${lead.id}-${Date.now()}`,
@@ -293,16 +302,23 @@ app.post('/leads/verify-emails', async (req: Request, res: Response) => {
           data: { emailVerified: Boolean(isVerified) },
         })
 
-        results.push({ leadId: lead.id, emailVerified: isVerified })
-        verifiedCount += 1
-      } catch (error) {
+        return isVerified
+      })
+    )
+
+    settled.forEach((outcome, i) => {
+      const lead = leads[i]
+      if (outcome.status === 'fulfilled') {
+        results.push({ leadId: lead.id, emailVerified: outcome.value })
+      } else {
         errors.push({
           leadId: lead.id,
           leadName: `${lead.firstName} ${lead.lastName}`.trim(),
-          error: error instanceof Error ? error.message : 'Unknown error',
+          error: outcome.reason instanceof Error ? outcome.reason.message : 'Unknown error',
         })
       }
-    }
+    })
+    const verifiedCount = results.length
 
     await connection.close()
 
