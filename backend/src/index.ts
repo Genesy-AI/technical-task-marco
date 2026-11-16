@@ -276,12 +276,12 @@ app.post('/leads/verify-emails', async (req: Request, res: Response) => {
     const connection = await Connection.connect({ address: 'localhost:7233' })
     const client = new Client({ connection, namespace: 'default' })
 
-    let verifiedCount = 0
     const results: Array<{ leadId: number; emailVerified: boolean }> = []
     const errors: Array<{ leadId: number; leadName: string; error: string }> = []
 
-    for (const lead of leads) {
-      try {
+    // Run all leads concurrently so one slow lead does not block the others.
+    const settled = await Promise.allSettled(
+      leads.map(async (lead) => {
         const isVerified = await client.workflow.execute(verifyEmailWorkflow, {
           taskQueue: 'myQueue',
           workflowId: `verify-email-${lead.id}-${Date.now()}`,
@@ -293,16 +293,23 @@ app.post('/leads/verify-emails', async (req: Request, res: Response) => {
           data: { emailVerified: Boolean(isVerified) },
         })
 
-        results.push({ leadId: lead.id, emailVerified: isVerified })
-        verifiedCount += 1
-      } catch (error) {
+        return isVerified
+      })
+    )
+
+    settled.forEach((outcome, i) => {
+      const lead = leads[i]
+      if (outcome.status === 'fulfilled') {
+        results.push({ leadId: lead.id, emailVerified: outcome.value })
+      } else {
         errors.push({
           leadId: lead.id,
           leadName: `${lead.firstName} ${lead.lastName}`.trim(),
-          error: error instanceof Error ? error.message : 'Unknown error',
+          error: outcome.reason instanceof Error ? outcome.reason.message : 'Unknown error',
         })
       }
-    }
+    })
+    const verifiedCount = results.length
 
     await connection.close()
 
