@@ -66,6 +66,7 @@ John,Doe,john.doe@example.com,Developer,US,Tech Corp`
       companyName: 'Tech Corp',
       isValid: true,
       errors: [],
+      warnings: [],
       rowIndex: 2,
     })
   })
@@ -152,6 +153,34 @@ John,Doe,john@example.com,,`
     expect(result[0].jobTitle).toBeUndefined()
     expect(result[0].countryCode).toBeUndefined()
     expect(result[0].isValid).toBe(true)
+  })
+
+  it('should drop invalid country codes with a warning and keep the row valid', () => {
+    const csv = `firstName,lastName,email,countryCode
+John,Doe,john@example.com,XXX
+Jane,Smith,jane@example.com,12`
+
+    const result = parseCsv(csv)
+
+    expect(result[0].countryCode).toBeUndefined()
+    expect(result[0].isValid).toBe(true)
+    expect(result[0].errors).toEqual([])
+    expect(result[0].warnings).toEqual(['Invalid country code "XXX" (will be left empty)'])
+    expect(result[1].countryCode).toBeUndefined()
+    expect(result[1].warnings).toEqual(['Invalid country code "12" (will be left empty)'])
+  })
+
+  it('should normalize country codes to uppercase and map UK to GB', () => {
+    const csv = `firstName,lastName,email,countryCode
+John,Doe,john@example.com,es
+Jane,Smith,jane@example.com,UK`
+
+    const result = parseCsv(csv)
+
+    expect(result[0].countryCode).toBe('ES')
+    expect(result[1].countryCode).toBe('GB')
+    expect(result[0].warnings).toEqual([])
+    expect(result[1].warnings).toEqual([])
   })
 
   it('should preserve row index correctly', () => {

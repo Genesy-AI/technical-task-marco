@@ -14,6 +14,7 @@ export interface LeadsBulkImportOutput {
   importedCount: number
   duplicatesSkipped: number
   invalidLeads: number
+  countryCodeWarnings: number
   errors: Array<{
     lead: any
     error: string
